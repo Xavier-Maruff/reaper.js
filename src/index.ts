@@ -1,17 +1,16 @@
 export interface ReaperConfig {
   gracePeriod: number;
-  //target?: string;
   debug: boolean;
 }
 
 export interface Reaper {
-  run(config?: ReaperConfig): void;
+  run(config?: Partial<ReaperConfig>): void;
 }
 
 interface ListenerRecord {
   eventName: string;
   callback: WeakRef<EventListenerOrEventListenerObject>;
-  options?: AddEventListenerOptions;
+  options?: boolean | AddEventListenerOptions;
 }
 
 interface NodeMeta {
@@ -49,14 +48,19 @@ function debug(msg: string) {
   console.log(`[reaperjs] ${msg}`);
 }
 
+function getCapture(options?: boolean | AddEventListenerOptions): boolean {
+  if (typeof options === "boolean") return options;
+  return !!options?.capture;
+}
+
 function proxyAddEventListener(
   this: EventTarget,
   eventName: string,
-  callback: EventListenerOrEventListenerObject,
-  options: AddEventListenerOptions,
+  callback: EventListenerOrEventListenerObject | null,
+  options?: boolean | AddEventListenerOptions,
 ) {
-  if (!(this instanceof Node)) {
-    return _addEventListener.call(this, eventName, callback, options);
+  if (!(this instanceof Node) || !callback) {
+    return _addEventListener.call(this, eventName, callback as any, options);
   }
 
   let meta = nodeRegistry.get(this);
@@ -81,20 +85,22 @@ function proxyAddEventListener(
 function proxyRemoveEventListener(
   this: EventTarget,
   eventName: string,
-  callback: EventListenerOrEventListenerObject,
+  callback: EventListenerOrEventListenerObject | null,
   options?: boolean | EventListenerOptions,
 ) {
-  if (!(this instanceof Node)) {
-    _removeEventListener.call(this, eventName, callback, options);
+  if (!(this instanceof Node) || !callback) {
+    _removeEventListener.call(this, eventName, callback as any, options);
     return;
   }
 
   const meta = nodeRegistry.get(this);
   if (meta) {
+    const capture = getCapture(options);
     for (const listener of meta.listeners) {
       if (
         listener.eventName === eventName &&
-        listener.callback.deref() === callback
+        listener.callback.deref() === callback &&
+        getCapture(listener.options) === capture
       ) {
         meta.listeners.delete(listener);
         break;
@@ -113,7 +119,9 @@ function init() {
   EventTarget.prototype.removeEventListener = proxyRemoveEventListener;
   initialised = true;
 
-  requestIdleCallback(sweep);
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(sweep);
+  }
 }
 
 function sweep(deadline: IdleDeadline) {
@@ -121,27 +129,27 @@ function sweep(deadline: IdleDeadline) {
   stats.initSweepListSize = sweepList.size;
   stats.leakedListenersCleaned = 0;
 
-  for (const ref of sweepList) {
+  const refs = Array.from(sweepList);
+  for (const ref of refs) {
     if (deadline.timeRemaining() < 1) {
       break;
     }
 
+    sweepList.delete(ref);
+
     const el = ref.deref();
     if (!el) {
-      sweepList.delete(ref);
-      //gc should take out nodemeta and listeners
       continue;
     }
 
     const meta = nodeRegistry.get(el);
     if (!meta) {
-      //no listeners, shouldn't be possible but safety
       continue;
     }
 
     if (el.isConnected) {
-      //could have been reattached
       meta.detachedAt = null;
+      sweepList.add(ref);
     } else {
       if (!meta.detachedAt) {
         meta.detachedAt = Date.now();
@@ -161,9 +169,9 @@ function sweep(deadline: IdleDeadline) {
           );
           stats.leakedListenersCleaned += 1;
         }
-
-        sweepList.delete(ref);
         nodeRegistry.delete(el);
+      } else {
+        sweepList.add(ref);
       }
     }
   }
