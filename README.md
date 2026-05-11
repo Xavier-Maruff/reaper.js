@@ -1,5 +1,6 @@
 # reaper
 
+![CI Badge](https://github.com/xavier-maruff/reaper.js/actions/workflows/ci.yml/badge.svg)
 A tiny garbage collector for the browser that cleans up silent memory leaks caused by event listeners on detached DOM nodes.
 
 ## Installation
