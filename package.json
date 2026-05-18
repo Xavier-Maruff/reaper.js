@@ -1,42 +1,42 @@
 {
-	"name": "@xavier-maruff/reaper",
-	"version": "0.1.1",
-	"description": "A tiny, efficient garbage collector for DOM event listeners.",
-	"type": "module",
-	"main": "./dist/index.js",
-	"module": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"unpkg": "./dist/index.global.js",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
-		}
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"build": "tsup src/index.ts --format esm,cjs,iife --global-name Reaper --dts --minify --clean",
-		"test": "bun test test/reaper.test.ts",
-		"fuzz": "bun test test/fuzz.test.ts",
-		"bench": "bun test/benchmark.ts",
-		"stats": "bun test/memory-stats.ts",
-		"test:browser": "bun run build && playwright test",
-		"prepublishOnly": "bun run build && bun run test && bun run test:browser",
-		"format": "biome format --fix --write src/** test/**",
-		"check": "biome check --write --unsafe src/** test/**"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.4.15",
-		"@playwright/test": "^1.59.1",
-		"@types/bun": "latest",
-		"@types/web": "^0.0.349",
-		"mitata": "^1.0.34",
-		"tsup": "^8.0.2"
-	},
-	"peerDependencies": {
-		"typescript": "^5"
-	}
+  "name": "@xavier-maruff/reaper",
+  "version": "0.1.2",
+  "description": "A tiny, efficient garbage collector for DOM event listeners.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/index.global.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs,iife --global-name Reaper --dts --minify --clean",
+    "test": "bun test test/reaper.test.ts",
+    "fuzz": "bun test test/fuzz.test.ts",
+    "bench": "bun test/benchmark.ts",
+    "stats": "bun test/memory-stats.ts",
+    "test:browser": "bun run build && playwright test",
+    "prepublishOnly": "bun run build && bun run test && bun run test:browser",
+    "format": "biome format --fix --write src/** test/**",
+    "check": "biome check --write --unsafe src/** test/**"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@playwright/test": "^1.59.1",
+    "@types/bun": "latest",
+    "@types/web": "^0.0.349",
+    "mitata": "^1.0.34",
+    "tsup": "^8.0.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
 }
