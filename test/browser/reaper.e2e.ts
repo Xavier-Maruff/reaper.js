@@ -27,12 +27,12 @@ test("Clean up detached btn", async ({ page }) => {
 		}
 	});
 
-	await page.waitForTimeout(500);
-
-	const reaperLog = consoleLogs.find((log) =>
-		log.includes("[reaperjs] Sweep complete."),
-	);
-
-	expect(reaperLog).toBeDefined();
-	expect(reaperLog).toContain("collected 1 garbage listeners");
+	await expect
+		.poll(
+			() =>
+				consoleLogs.find((log) => log.includes("[reaperjs] Sweep complete.")) ??
+				"",
+			{ timeout: 2_000 },
+		)
+		.toContain("collected 1 garbage listeners");
 });

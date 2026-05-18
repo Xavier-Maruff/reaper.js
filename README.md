@@ -41,4 +41,5 @@ Reaper.run({
 
 ## Performance
 
-Reaper proxies native `addEventListener` and `removeEventListener` functions, slightly increasing the raw perf overhead of their usage (still under 1ms p99 in the benchmarking tests). The memory savings that this little bit of overhead buy will differ greatly depending on the context, the best option is to run a benchmark on your own codebase.
+With any GC there will be a small minimal perf overhead. Reaper proxies native `addEventListener` and `removeEventListener` functions, slightly decreasing their performance (still under 1ms p99 in the benchmarking tests).
+However, in a codebase with even a small amount of memory leaks, this overhead quickly becomes insignificant relative the perf boost and memory pressure decrease that you get in exchange (run 'bun stats' for a comparison best case scenario). It is advised to run a benchmark test on your codebase before installing reaper.js to know if it will actually provide a net benefit.

@@ -10,13 +10,16 @@ export interface Reaper {
 interface ListenerRecord {
   eventName: string;
   callback: WeakRef<EventListenerOrEventListenerObject>;
-  options?: boolean | AddEventListenerOptions;
+  capture: boolean;
 }
 
 interface NodeMeta {
+  seenConnected: boolean;
   detachedAt: number | null;
   listeners: Set<ListenerRecord>;
 }
+
+type TimeoutHandle = ReturnType<typeof setTimeout> & { unref?: () => void };
 
 const DEFAULT_CONFIG: ReaperConfig = {
   gracePeriod: 0,
@@ -48,9 +51,42 @@ function debug(msg: string) {
   console.log(`[reaperjs] ${msg}`);
 }
 
+// naive polyfill for ssr-ish envs, resolves at call time so requestidlecallback can
+// be installed after module import
+function schedule(cb: IdleRequestCallback) {
+  if (typeof globalThis.requestIdleCallback === "function") {
+    return globalThis.requestIdleCallback(cb);
+  }
+
+  const handle = setTimeout(
+    () => cb({ timeRemaining: () => 10 } as IdleDeadline),
+    50,
+  ) as TimeoutHandle;
+
+  handle.unref?.();
+  return handle;
+}
+
 function getCapture(options?: boolean | AddEventListenerOptions): boolean {
   if (typeof options === "boolean") return options;
   return !!options?.capture;
+}
+
+function isDOMNode(target: EventTarget): target is Node {
+  return typeof Node !== "undefined" && target instanceof Node;
+}
+
+function matchesListener(
+  listener: ListenerRecord,
+  eventName: string,
+  callback: EventListenerOrEventListenerObject,
+  options?: boolean | EventListenerOptions,
+): boolean {
+  return (
+    listener.eventName === eventName &&
+    listener.callback.deref() === callback &&
+    listener.capture === getCapture(options)
+  );
 }
 
 function proxyAddEventListener(
@@ -59,13 +95,14 @@ function proxyAddEventListener(
   callback: EventListenerOrEventListenerObject | null,
   options?: boolean | AddEventListenerOptions,
 ) {
-  if (!(this instanceof Node) || !callback) {
+  if (!isDOMNode(this) || !callback) {
     return _addEventListener.call(this, eventName, callback as any, options);
   }
 
   let meta = nodeRegistry.get(this);
   if (!meta) {
     meta = {
+      seenConnected: (this as Node).isConnected ?? false,
       detachedAt: null,
       listeners: new Set(),
     };
@@ -73,11 +110,21 @@ function proxyAddEventListener(
     sweepList.add(new WeakRef(this));
   }
 
-  meta.listeners.add({
-    eventName,
-    callback: new WeakRef(callback),
-    options,
-  });
+  let hasRecord = false;
+  for (const listener of meta.listeners) {
+    if (matchesListener(listener, eventName, callback, options)) {
+      hasRecord = true;
+      break;
+    }
+  }
+
+  if (!hasRecord) {
+    meta.listeners.add({
+      eventName,
+      callback: new WeakRef(callback),
+      capture: getCapture(options),
+    });
+  }
 
   _addEventListener.call(this, eventName, callback, options);
 }
@@ -88,23 +135,21 @@ function proxyRemoveEventListener(
   callback: EventListenerOrEventListenerObject | null,
   options?: boolean | EventListenerOptions,
 ) {
-  if (!(this instanceof Node) || !callback) {
+  if (!isDOMNode(this) || !callback) {
     _removeEventListener.call(this, eventName, callback as any, options);
     return;
   }
 
   const meta = nodeRegistry.get(this);
   if (meta) {
-    const capture = getCapture(options);
     for (const listener of meta.listeners) {
-      if (
-        listener.eventName === eventName &&
-        listener.callback.deref() === callback &&
-        getCapture(listener.options) === capture
-      ) {
+      if (matchesListener(listener, eventName, callback, options)) {
         meta.listeners.delete(listener);
-        break;
       }
+    }
+
+    if (meta.listeners.size === 0) {
+      nodeRegistry.delete(this);
     }
   }
   _removeEventListener.call(this, eventName, callback, options);
@@ -119,15 +164,14 @@ function init() {
   EventTarget.prototype.removeEventListener = proxyRemoveEventListener;
   initialised = true;
 
-  if (typeof requestIdleCallback !== "undefined") {
-    requestIdleCallback(sweep);
-  }
+  schedule(sweep);
 }
 
 function sweep(deadline: IdleDeadline) {
   stats.sweepStart = Date.now();
   stats.initSweepListSize = sweepList.size;
   stats.leakedListenersCleaned = 0;
+  const now = Date.now();
 
   const refs = Array.from(sweepList);
   for (const ref of refs) {
@@ -148,14 +192,15 @@ function sweep(deadline: IdleDeadline) {
     }
 
     if (el.isConnected) {
+      meta.seenConnected = true;
       meta.detachedAt = null;
       sweepList.add(ref);
-    } else {
-      if (!meta.detachedAt) {
-        meta.detachedAt = Date.now();
+    } else if (meta.seenConnected) {
+      if (meta.detachedAt === null) {
+        meta.detachedAt = now;
       }
 
-      if (Date.now() - meta.detachedAt > _config.gracePeriod) {
+      if (now - meta.detachedAt >= _config.gracePeriod) {
         for (const listener of meta.listeners) {
           const callback = listener.callback.deref();
           if (!callback) {
@@ -165,7 +210,7 @@ function sweep(deadline: IdleDeadline) {
           el.removeEventListener(
             listener.eventName,
             callback,
-            listener.options,
+            listener.capture,
           );
           stats.leakedListenersCleaned += 1;
         }
@@ -173,6 +218,9 @@ function sweep(deadline: IdleDeadline) {
       } else {
         sweepList.add(ref);
       }
+    } else {
+      //noop, if never connected it's probably a node being constructed etc.,
+      //cannot safely assume it's a leaked node/listener
     }
   }
 
@@ -186,7 +234,7 @@ function sweep(deadline: IdleDeadline) {
     );
   }
 
-  requestIdleCallback(sweep);
+  schedule(sweep);
 }
 
 function run(config?: Partial<ReaperConfig>): void {

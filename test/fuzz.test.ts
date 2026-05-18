@@ -1,21 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { MockNode, triggerIdleSweep } from "./helpers/reaper-env.ts";
 import Reaper from "../src/index.ts";
-
-class MockNode extends EventTarget {
-	isConnected: boolean = true;
-}
-// biome-ignore lint: calm down
-globalThis.Node = MockNode as any;
-
-let pendingSweep: ((deadlin: IdleDeadline) => void) | null = null;
-globalThis.requestIdleCallback = ((cb: typeof pendingSweep) => {
-	pendingSweep = cb;
-	return 1;
-}) as typeof globalThis.requestIdleCallback;
-
-function triggerIdleSweep() {
-	if (pendingSweep) pendingSweep({ timeRemaining: () => 50 } as IdleDeadline);
-}
 
 describe("Reaper Fuzzer", () => {
 	beforeEach(() => {
@@ -45,14 +30,14 @@ describe("Reaper Fuzzer", () => {
 				] as MockNode;
 				target.isConnected = false;
 			} else if (action < 0.9) {
-				triggerIdleSweep();
+				triggerIdleSweep(100);
 			} else {
 				Bun.gc(true);
 			}
 		}
 
 		//clear out
-		triggerIdleSweep();
+		triggerIdleSweep(100);
 
 		//pass
 		expect(true).toBe(true);
